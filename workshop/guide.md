@@ -4,15 +4,17 @@ Follow along with this guide during the workshop, or work through it on your own
 
 You'll take a small web app, look at the pipeline that checks every change, break that pipeline on purpose a few times, and finally add a step that deploys the app to the internet whenever its checks pass.
 
-The concepts come from chapter 2 of *Grokking Continuous Delivery* by Christie Wilson (Manning, 2022).
+> **Following the slides?** Sections 1 to 5 here match the numbered section slides (01 to 05). Section 6 matches the "Adding CD" slides that come after the hands-on, and section 7 matches "Key Takeaways" and "Recommended reading".
+
+The concepts come from chapters 1 and 2 of *Grokking Continuous Delivery* by Christie Wilson (Manning, 2022).
 
 **Contents**
 
 0. [Before you start](#0-before-you-start)
-1. [The ideas in five minutes](#1-the-ideas-in-five-minutes)
-2. [Get the example app running](#2-get-the-example-app-running)
-3. [Read the pipeline](#3-read-the-pipeline)
-4. [Your first green run](#4-your-first-green-run)
+1. [What is CI/CD?](#1-what-is-cicd)
+2. [Why use CI/CD?](#2-why-use-cicd)
+3. [Anatomy of a pipeline](#3-anatomy-of-a-pipeline)
+4. [Our example app](#4-our-example-app)
 5. [Break the build](#5-break-the-build)
 6. [Add CD: deploy to GitHub Pages](#6-add-cd-deploy-to-github-pages)
 7. [Where to go next](#7-where-to-go-next)
@@ -27,18 +29,26 @@ You need:
 - **Git**, set up so you can push to GitHub. Check with `git --version`.
 - **Node.js 24 LTS**. Check with `node --version`. Get it from [nodejs.org](https://nodejs.org) if you don't have it.
 - A code editor. Any editor works. VS Code is a good default.
+- **Your own fork** of the workshop repo (steps below)
+
+### Fork the repo
+
+1. Open <https://github.com/ProgSoc/introtocicd>.
+2. Click **Fork**, then **Create fork**. You now have your own copy at `github.com/<your-username>/introtocicd`.
+3. In **your fork**, open the **Actions** tab. GitHub turns workflows off on new forks, so if you see the message *"Workflows aren't being run on this forked repository"*, click **I understand my workflows, go ahead and enable them**.
 
 ---
 
-## 1. The ideas in five minutes
+## 1. What is CI/CD?
 
-### The problem
+### Acronym time
 
-Code that works on its own can still break once it's combined with other people's code. Most beginners run into one of these:
-
-- **"Works on my machine."** You forgot to commit a file. Your laptop is fine, but everyone else's build is broken.
-- **"Who broke main?"** Ten changes landed today and one of them is bad. Nobody knows which.
-- **"Release day panic."** Shipping is a long manual checklist that only one person remembers.
+| Term | What it means |
+|---|---|
+| Continuous integration | Every change is merged often and checked automatically |
+| Continuous delivery | `main` is always releasable, and a person decides when to ship |
+| Continuous deployment | Every change that passes the checks ships automatically |
+| CI/CD | The umbrella term for the tools and automation behind all three |
 
 ### Continuous integration (CI)
 
@@ -48,6 +58,15 @@ Code that works on its own can still break once it's combined with other people'
 - **Frequently** means small changes, merged often.
 - **Verified** means every push runs automated checks, such as linting and tests, and gets a pass or a fail.
 
+The book explains this with Holly the chef, who makes pasta sauce:
+
+| 🍝 Holly the chef makes pasta sauce | | 💻 Your team builds software |
+|---|---|---|
+| She starts with raw ingredients: onions, garlic, tomatoes, spices | → | Everyone's code changes |
+| She adds them one at a time, in the right order and amounts | → | **Integrate:** merge small changes often |
+| She takes a quick taste after every new ingredient | → | **Verify:** run the checks on every push |
+| If she only tasted at the end, it'd be too late to fix | → | One giant merge the night before the deadline |
+
 ### Continuous delivery (CD)
 
 You're doing continuous delivery when both of these are true:
@@ -55,12 +74,42 @@ You're doing continuous delivery when both of these are true:
 1. **Always shippable:** you could safely release any commit on `main` at any time. CI is what gets you there.
 2. **Shipping is easy:** releasing is as simple as pressing a button, because building, publishing and deploying are automated.
 
-| Term | What it means |
-|---|---|
-| Continuous integration | Every change is merged often and checked automatically |
-| Continuous delivery | `main` is always releasable, and a person decides when to ship |
-| Continuous deployment | Every change that passes the checks ships automatically |
-| CI/CD | The umbrella term for the tools and automation behind all three |
+The book's analogy stops at CI, so here's our own continuation. Holly now runs a restaurant:
+
+| 🍴 Holly now runs a restaurant | | 💻 Your team ships software |
+|---|---|---|
+| Her sauce is always finished and tasted, ready to plate | → | **Always shippable:** every commit on `main` has passed the checks |
+| Plating and serving are automated routines her waiters carry out | → | **Shipping is easy:** build, publish and deploy are automated |
+| She decides when each table gets its food | → | **Continuous delivery:** a person chooses when to release |
+| Every dish goes out the moment it's ready | → | **Continuous deployment:** every green change ships automatically |
+
+---
+
+## 2. Why use CI/CD?
+
+### Common issues
+
+Code that works on its own can still break once it's combined with other people's code. Most beginners run into one of these:
+
+- **"It works on my machine."** You forgot to commit a file. Your laptop is fine, but everyone else's build is broken.
+- **"Who broke main?"** Ten changes landed today and one of them is bad. Nobody knows which.
+- **"How do we release again?"** Shipping is a long manual checklist that only one person remembers, and everyone waits on them.
+
+### How to implement it
+
+- **Run the checks before you push.** Run the tests and linter on your own laptop first. In this repo that's `npm run ci`.
+- **Automate them on every push.** The pipeline runs the same checks on GitHub, so everyone finds out when something breaks, without anyone having to remember to run them.
+- **Keep each push small.** A failure then points straight at your change, not at a day's worth of work.
+
+### The golden rule
+
+> **When the pipeline breaks, stop pushing changes.** Fix it first.
+
+If you push on top of a broken pipeline, the failure gets blamed on you, and the original problem gets harder to untangle. It's even better to run the checks *before* you push.
+
+---
+
+## 3. Anatomy of a pipeline
 
 ### Tasks and pipelines
 
@@ -76,16 +125,6 @@ def pipeline(code):
     deploy(url)
 ```
 
-### The five basic tasks
-
-| Task | What it does |
-|---|---|
-| **Lint** | Reads the code and flags mistakes and style problems, without running it |
-| **Test** | Runs the code and checks it does what the author meant |
-| **Build** | Turns source code into something runnable, such as TypeScript compiled to JavaScript |
-| **Publish** | Puts the built thing somewhere other people can get it |
-| **Deploy** | Updates the running app to the new version |
-
 ### Gates and transformations
 
 This is the key idea from chapter 2.
@@ -93,38 +132,21 @@ This is the key idea from chapter 2.
 - **Gates** check the code. Code goes in and a pass or a fail comes out. A fail stops the pipeline. Linting and testing are gates, and together they make up the **CI** part.
 - **Transformations** change the code into something else: a built app, a published package, a live website. Building, publishing and deploying are transformations, and they make up the **CD** part.
 
-Gates always come first, so code that hasn't passed every check never gets shipped.
+Gates always come first, so code that hasn't passed every check never gets shipped. (On the slides, blue means a gate and amber means a transformation.)
 
-### Why automate it? Topher's story
+### Common task types
 
-In the book, Topher's team has a pipeline script, and Topher runs it by hand:
-
-1. **Once a day.** It breaks, but several people changed code yesterday, so he can't tell whose change did it.
-2. **On every change**, when teammates tell him they pushed. Someone forgets to tell him.
-3. **On git notifications.** The team grows, and running the pipeline becomes his whole job.
-4. **With a webhook.** The version control system calls a small server on every push. The server runs the pipeline and emails whoever broke it.
-
-A CI service like GitHub Actions is step 4, ready-made: you write the pipeline and GitHub triggers it.
-
-### The golden rule
-
-> **When the pipeline breaks, stop pushing changes.** Fix it first.
-
-If you push on top of a broken pipeline, the failure gets blamed on you, and the original problem gets harder to untangle. It's even better to run the checks *before* you push.
-
-### Same ideas, different names
-
-| Idea | In GitHub Actions | You may also hear |
+| Task | Kind | What it does |
 |---|---|---|
-| Pipeline | Workflow (a YAML file in `.github/workflows/`) | workflow, build |
-| Task | Job, made of steps | stage, step, action |
-| Trigger | `on: push`, `on: pull_request` | webhook, event |
-| Passes | Green tick on the commit | "CI is green" |
-| Breaks | Red cross on the commit | "CI is red", "broke the build" |
+| **Lint** | gate | Reads the code and flags mistakes and style problems, without running it |
+| **Test** | gate | Runs the code and checks it does what the author meant |
+| **Build** | transformation | Turns source code into something runnable, such as TypeScript compiled to JavaScript |
+| **Publish** | transformation | Puts the built thing somewhere other people can get it |
+| **Deploy** | transformation | Updates the running app to the new version |
 
 ---
 
-## 2. Get the example app running
+## 4. Our example app
 
 The example app is **FizzBuzz Terminal**: a tiny TypeScript web app. You type a number and press Enter:
 
@@ -134,13 +156,7 @@ The example app is **FizzBuzz Terminal**: a tiny TypeScript web app. You type a 
 - anything else → the number itself
 - `0` quits
 
-### 2.1 Fork the repo
-
-1. Open <https://github.com/ProgSoc/introtocicd>.
-2. Click **Fork**, then **Create fork**. You now have your own copy at `github.com/<your-username>/introtocicd`.
-3. In **your fork**, open the **Actions** tab. GitHub turns workflows off on new forks, so if you see the message *"Workflows aren't being run on this forked repository"*, click **I understand my workflows, go ahead and enable them**.
-
-### 2.2 Clone it and install
+### 4.1 Clone it and install
 
 Replace `<your-username>` with your GitHub username:
 
@@ -156,7 +172,7 @@ cd introtocicd
 npm install
 ```
 
-### 2.3 Try the app
+### 4.2 Try the app
 
 ```bash
 npm start
@@ -164,7 +180,7 @@ npm start
 
 Open <http://localhost:8000> and try a few numbers. Press `Ctrl+C` in the terminal to stop the server.
 
-### 2.4 Run the pipeline on your laptop
+### 4.3 Run the pipeline on your laptop
 
 ```bash
 npm run ci
@@ -182,11 +198,9 @@ This runs exactly the checks that GitHub runs: `typecheck`, then `lint`, then `t
 | `biome.json` | Settings for [Biome](https://biomejs.dev), the linter and formatter |
 | `.github/workflows/ci.yaml` | **The pipeline** |
 | `Quests.md` | More break-it challenges |
-| `workshop/` | This guide, plus the finished pipeline in `workshop/solution/` |
+| `workshop/` | This guide, the slides in `workshop/slides/`, and the finished pipeline in `workshop/solution/` |
 
----
-
-## 3. Read the pipeline
+### 4.4 Read the pipeline
 
 Open `.github/workflows/ci.yaml`. It's short:
 
@@ -211,7 +225,7 @@ jobs:
 
 Things to notice:
 
-- **`on: [push, pull_request]`** is the trigger. Every push to any branch, and every pull request, starts the pipeline. This is Topher's webhook, built into GitHub.
+- **`on: [push, pull_request]`** is the trigger. Every push to any branch, and every pull request, starts the pipeline automatically. Nobody has to remember to run the checks.
 - **`runs-on: ubuntu-24.04`** gives you a fresh virtual machine on every run. The only files on it are the ones you committed, which is why CI catches "works on my machine" bugs.
 - **`npm ci`** installs the exact versions in `package-lock.json`, so CI tests what you tested.
 - **The gates run cheapest first.** Type checking takes a second and the tests take longer, so a typo fails fast. The first failing step stops the run.
@@ -224,9 +238,19 @@ The three gates:
 | `npm run lint` | Biome | Risky patterns (such as `==`), formatting and import order |
 | `npm test` | Vitest | Code that runs but gives the wrong answer |
 
----
+The slides show one example failure for each gate. You'll cause each of them yourself in [section 5](#5-break-the-build).
 
-## 4. Your first green run
+You'll see these names in the Actions tab, so here's how they line up with the ideas so far:
+
+| Idea | In GitHub Actions | You may also hear |
+|---|---|---|
+| Pipeline | Workflow (a YAML file in `.github/workflows/`) | workflow, build |
+| Task | Job, made of steps | stage, step, action |
+| Trigger | `on: push`, `on: pull_request` | webhook, event |
+| Passes | Green tick on the commit | "CI is green" |
+| Breaks | Red cross on the commit | "CI is red", "broke the build" |
+
+### 4.5 Your first green run
 
 Make a harmless change so you can watch the pipeline run.
 
@@ -393,9 +417,15 @@ Commit and push. This is valid code, so typecheck and lint both pass. Only a tes
 × fizzbuzz(15) is FizzBuzz
 × fizzbuzz(30) is FizzBuzz
 × fizzbuzz(45) is FizzBuzz
+× negative: fizzbuzz(-15) is FizzBuzz
+× echoes what you typed, then prints the result
 Expected: "FizzBuzz"
 Received: "Fizz"
+
+Tests  5 failed | 24 passed (29)
 ```
+
+The last failure is a terminal test that types `15`, so one bug can fail tests in more than one file.
 
 Open `tests/fizzbuzz.test.ts` to see how the tests work. Each row in the table is one test: call `fizzbuzz` with this number and expect this answer.
 
@@ -561,19 +591,20 @@ This is the whole point: broken code never gets shipped. Undo the change, push, 
 
 ## 7. Where to go next
 
-**Recap**
+**Key takeaways**
 
 1. **CI:** merge small changes often, and verify every one automatically.
 2. **CD:** `main` is always shippable, and shipping takes one button.
 3. **Gates first:** lint and test, then build, publish and deploy.
-4. **Automate the trigger:** every push runs the pipeline, so nobody has to be Topher.
-5. **Red means stop:** fix the pipeline before pushing more. Run the checks locally first.
+4. **Automate the trigger:** every push runs the pipeline, so nobody has to run the checks by hand.
+5. **Red means stop:** fix the pipeline before pushing more. Run `npm run ci` first.
 
 **Try this week:** add a workflow to one of your own projects, even if it only runs a linter. A green tick on your GitHub projects looks good to employers, too.
 
-**Read more**
+**Recommended reading**
 
-- *Grokking Continuous Delivery*, Christie Wilson (Manning, 2022). Today was chapter 2. Chapters 4 to 6 go deep on linting and testing.
+- *Grokking Continuous Delivery*, Christie Wilson (Manning, 2022). A very beginner-friendly book that explains things with analogies and pictures. Today covered chapter 2 (and the pasta sauce from chapter 1). Chapters 4 to 6 go deep on linting and testing.
+- *Continuous Delivery*, Jez Humble and David Farley (Addison-Wesley, 2010). One of the most influential books on the topic, and a good next step once you've finished *Grokking Continuous Delivery*.
 - [GitHub Actions documentation](https://docs.github.com/actions)
 - [Biome](https://biomejs.dev) and [Vitest](https://vitest.dev), the linter and test runner used today
 - `Quests.md` in this repo, for more break-it challenges
